@@ -15,6 +15,3 @@ var ErrKeyExpired error = errors.New("key expired")
 const DefaultLimit int = 5
 
 var DefaultExpireTime time.Duration = 3 * time.Hour
-
-// TODO: remove this and make it a flag later
-var EncryptionKey = []byte("turturkeykey")
