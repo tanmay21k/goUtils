@@ -13,7 +13,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	store, err := stores.NewkvStore(10)
+	store, err := stores.NewKVStore(10)
 	if err != nil {
 		panic(err)
 	}

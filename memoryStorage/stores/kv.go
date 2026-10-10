@@ -10,24 +10,28 @@ import (
 	"github.com/tanmay21k/goUtils/memoryStorage/helpers"
 )
 
+// DefaultLimit is the default maximum number of keys for NewKVStore.
 const DefaultLimit = 5
 
-type kvStore struct {
+// KVStore is a concurrency-safe, non-expiring in-memory key/value store.
+type KVStore struct {
 	mu           sync.RWMutex
 	data         map[string]string
 	maxValidSize int
 }
 
-var _ Store = (*kvStore)(nil)
-var _ Exister = (*kvStore)(nil)
-var _ KeyStore = (*kvStore)(nil)
-var _ KeyLister = (*kvStore)(nil)
-var _ Scanner = (*kvStore)(nil)
-var _ ConditionalStore = (*kvStore)(nil)
+var _ Store = (*KVStore)(nil)
+var _ Exister = (*KVStore)(nil)
+var _ KeyStore = (*KVStore)(nil)
+var _ KeyLister = (*KVStore)(nil)
+var _ Scanner = (*KVStore)(nil)
+var _ ConditionalStore = (*KVStore)(nil)
 
-func NewkvStore(limit ...int) (*kvStore, error) {
+// NewKVStore creates a non-expiring in-memory store. With no argument it uses
+// DefaultLimit; otherwise exactly one capacity greater than 1 is required.
+func NewKVStore(limit ...int) (*KVStore, error) {
 	if len(limit) == 0 {
-		return &kvStore{
+		return &KVStore{
 			data:         make(map[string]string, DefaultLimit),
 			maxValidSize: DefaultLimit,
 		}, nil
@@ -41,13 +45,21 @@ func NewkvStore(limit ...int) (*kvStore, error) {
 		return nil, fmt.Errorf("size must be greater than 1")
 	}
 
-	return &kvStore{
+	return &KVStore{
 		data:         make(map[string]string, limit[0]),
 		maxValidSize: limit[0],
 	}, nil
 }
 
-func (s *kvStore) Get(ctx context.Context, key string) (Value, error) {
+// NewkvStore is an outdated spelling of NewKVStore.
+//
+// Deprecated: use NewKVStore.
+func NewkvStore(limit ...int) (*KVStore, error) {
+	return NewKVStore(limit...)
+}
+
+// Get returns the value for key, or an error if the key does not exist.
+func (s *KVStore) Get(ctx context.Context, key string) (Value, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -62,7 +74,8 @@ func (s *kvStore) Get(ctx context.Context, key string) (Value, error) {
 	return Value(value), nil
 }
 
-func (s *kvStore) Set(ctx context.Context, key string, value Value) error {
+// Set adds or replaces key with value, subject to the store's capacity.
+func (s *KVStore) Set(ctx context.Context, key string, value Value) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -75,7 +88,7 @@ func (s *kvStore) Set(ctx context.Context, key string, value Value) error {
 	return s.set(key, value)
 }
 
-func (s *kvStore) set(key string, value Value) error {
+func (s *KVStore) set(key string, value Value) error {
 	if _, exists := s.data[key]; !exists &&
 		s.maxValidSize <= len(s.data) {
 		return helpers.ErrSizeExceed
@@ -85,7 +98,8 @@ func (s *kvStore) set(key string, value Value) error {
 	return nil
 }
 
-func (s *kvStore) Del(ctx context.Context, key string) error {
+// Del removes key. Deleting a missing key is a no-op.
+func (s *KVStore) Del(ctx context.Context, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -95,7 +109,8 @@ func (s *kvStore) Del(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *kvStore) Keys() []string {
+// Keys returns all current keys in alphabetical order.
+func (s *KVStore) Keys() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -110,7 +125,8 @@ func (s *kvStore) Keys() []string {
 	return keys
 }
 
-func (s *kvStore) Rename(ctx context.Context, old, new string) error {
+// Rename changes old to new, replacing new if it already exists.
+func (s *KVStore) Rename(ctx context.Context, old, new string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -130,7 +146,8 @@ func (s *kvStore) Rename(ctx context.Context, old, new string) error {
 	return nil
 }
 
-func (s *kvStore) Pop(ctx context.Context, key string) (Value, error) {
+// Pop returns the value for key and removes it from the store.
+func (s *KVStore) Pop(ctx context.Context, key string) (Value, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -144,7 +161,8 @@ func (s *kvStore) Pop(ctx context.Context, key string) (Value, error) {
 	return Value(value), nil
 }
 
-func (s *kvStore) Exists(ctx context.Context, key string) (bool, error) {
+// Exists reports whether key is present.
+func (s *KVStore) Exists(ctx context.Context, key string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -154,7 +172,8 @@ func (s *kvStore) Exists(ctx context.Context, key string) (bool, error) {
 	return exists, nil
 }
 
-func (s *kvStore) Scan(ctx context.Context, pattern string, fn func(string) error) error {
+// Scan visits keys matching pattern in alphabetical order and stops on error.
+func (s *KVStore) Scan(ctx context.Context, pattern string, fn func(string) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -184,7 +203,8 @@ func (s *kvStore) Scan(ctx context.Context, pattern string, fn func(string) erro
 	return nil
 }
 
-func (s *kvStore) SetNX(ctx context.Context, key string, value Value) (bool, error) {
+// SetNX writes value only if key does not exist; the bool reports success.
+func (s *KVStore) SetNX(ctx context.Context, key string, value Value) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -202,7 +222,8 @@ func (s *kvStore) SetNX(ctx context.Context, key string, value Value) (bool, err
 	return true, nil
 }
 
-func (s *kvStore) SetXX(ctx context.Context, key string, value Value) (bool, error) {
+// SetXX writes value only if key exists; the bool reports whether it existed.
+func (s *KVStore) SetXX(ctx context.Context, key string, value Value) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}

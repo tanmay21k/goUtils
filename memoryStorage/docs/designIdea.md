@@ -14,16 +14,16 @@ Start
  │          └── Describe behavior, not implementation
  │
  ├── 3. Create the first implementation
- │      └── kv.store
- │          ├── Keep concrete type private
+ │      └── stores.KVStore
+ │          ├── Keep internal state private
  │          ├── Implement stores.Store
- │          └── Expose NewStore()
+ │          └── Expose NewKVStore()
  │
  ├── 4. Identify variations in behavior
  │      └── Need expiration?
- │          └── Create ttl.store
+ │          └── Create stores.TTLStore
  │              ├── Implement stores.Store
- │              └── Expose NewStore()
+ │              └── Expose NewTTLStore() and NewDefaultTTLStore()
  │
  ├── 5. Add cross-cutting business logic
  │      └── Middleware
@@ -36,8 +36,8 @@ Start
  │      └── main
  │          └── Middleware
  │              └── stores.Store
- │                  ├── kv.store
- │                  └── ttl.store
+ │                  ├── stores.KVStore
+ │                  └── stores.TTLStore
  │
  └── 7. Keep dependencies pointing inward
         ├── Business logic → interface
