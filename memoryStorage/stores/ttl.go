@@ -11,26 +11,56 @@ import (
 	"github.com/tanmay21k/goUtils/memoryStorage/helpers"
 )
 
+// Entry is a value and its expiration timestamp in a TTL store.
 type Entry struct {
-	Value    Value
+	// Value is the stored value.
+	Value Value
+	// ExpireAt is the time after which the entry is expired.
 	ExpireAt time.Time
 }
 
-type ttlStore struct {
+// DefaultTTL is the expiration duration used by NewDefaultTTLStore.
+const DefaultTTL = 3 * time.Hour
+
+// TTLStore is a concurrency-safe in-memory key/value store with lazy TTL expiration.
+type TTLStore struct {
 	mu           sync.RWMutex
 	data         map[string]Entry
 	maxValidSize int
 	expireTime   time.Duration
 }
 
-var _ Store = (*ttlStore)(nil)
-var _ Exister = (*ttlStore)(nil)
-var _ KeyStore = (*ttlStore)(nil)
-var _ KeyLister = (*ttlStore)(nil)
-var _ Scanner = (*ttlStore)(nil)
-var _ ConditionalStore = (*ttlStore)(nil)
+var _ Store = (*TTLStore)(nil)
+var _ Exister = (*TTLStore)(nil)
+var _ KeyStore = (*TTLStore)(nil)
+var _ KeyLister = (*TTLStore)(nil)
+var _ Scanner = (*TTLStore)(nil)
+var _ ConditionalStore = (*TTLStore)(nil)
 
-func NewStore(args ...int) (*ttlStore, error) {
+// NewTTLStore creates a TTL store with the specified capacity and expiration
+// duration. Capacity must be greater than 1 and ttl must be positive.
+func NewTTLStore(capacity int, ttl time.Duration) (*TTLStore, error) {
+	if capacity <= 1 {
+		return nil, fmt.Errorf("size must be greater than 1")
+	}
+	if ttl <= 0 {
+		return nil, fmt.Errorf("expire time must be greater than 0")
+	}
+	return newTTLStore(capacity, ttl), nil
+}
+
+// NewDefaultTTLStore creates a TTL store with capacity DefaultLimit and
+// expiration duration DefaultTTL.
+func NewDefaultTTLStore() *TTLStore {
+	return newTTLStore(helpers.DefaultLimit, DefaultTTL)
+}
+
+// NewStore creates a TTL store using the legacy integer-based constructor.
+// With no arguments it uses the defaults; with one argument it sets capacity;
+// with two arguments it sets capacity and expiration duration in nanoseconds.
+//
+// Deprecated: use NewDefaultTTLStore or NewTTLStore.
+func NewStore(args ...int) (*TTLStore, error) {
 	size := helpers.DefaultLimit
 	expireTime := helpers.DefaultExpireTime
 
@@ -61,14 +91,19 @@ func NewStore(args ...int) (*ttlStore, error) {
 		return nil, helpers.ErrInvalidSize
 	}
 
-	return &ttlStore{
+	return newTTLStore(size, expireTime), nil
+}
+
+func newTTLStore(size int, expireTime time.Duration) *TTLStore {
+	return &TTLStore{
 		data:         make(map[string]Entry, size),
 		maxValidSize: size,
 		expireTime:   expireTime,
-	}, nil
+	}
 }
 
-func (s *ttlStore) Get(ctx context.Context, key string) (Value, error) {
+// Get returns the value for key, or an error if the key is missing or expired.
+func (s *TTLStore) Get(ctx context.Context, key string) (Value, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -88,7 +123,8 @@ func (s *ttlStore) Get(ctx context.Context, key string) (Value, error) {
 	return entry.Value, nil
 }
 
-func (s *ttlStore) Set(ctx context.Context, key string, value Value) error {
+// Set adds or replaces key with value and starts a fresh expiration period.
+func (s *TTLStore) Set(ctx context.Context, key string, value Value) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -102,7 +138,7 @@ func (s *ttlStore) Set(ctx context.Context, key string, value Value) error {
 	return s.set(key, value)
 }
 
-func (s *ttlStore) set(key string, value Value) error {
+func (s *TTLStore) set(key string, value Value) error {
 	if _, exists := s.data[key]; !exists && s.maxValidSize <= len(s.data) {
 		return helpers.ErrSizeExceed
 	}
@@ -115,7 +151,8 @@ func (s *ttlStore) set(key string, value Value) error {
 	return nil
 }
 
-func (s *ttlStore) Del(ctx context.Context, key string) error {
+// Del removes key. Deleting a missing key is a no-op.
+func (s *TTLStore) Del(ctx context.Context, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -125,7 +162,8 @@ func (s *ttlStore) Del(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *ttlStore) Keys() []string {
+// Keys returns unexpired keys in alphabetical order.
+func (s *TTLStore) Keys() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -145,7 +183,8 @@ func (s *ttlStore) Keys() []string {
 	return keys
 }
 
-func (s *ttlStore) Rename(ctx context.Context, old, new string) error {
+// Rename changes old to new, replacing new if it exists and preserving expiry.
+func (s *TTLStore) Rename(ctx context.Context, old, new string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -175,7 +214,8 @@ func (s *ttlStore) Rename(ctx context.Context, old, new string) error {
 	return nil
 }
 
-func (s *ttlStore) Pop(ctx context.Context, key string) (Value, error) {
+// Pop returns the value for key and removes it from the store.
+func (s *TTLStore) Pop(ctx context.Context, key string) (Value, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -196,7 +236,8 @@ func (s *ttlStore) Pop(ctx context.Context, key string) (Value, error) {
 	return entry.Value, nil
 }
 
-func (s *ttlStore) Exists(ctx context.Context, key string) (bool, error) {
+// Exists reports whether key is present and unexpired.
+func (s *TTLStore) Exists(ctx context.Context, key string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -213,7 +254,8 @@ func (s *ttlStore) Exists(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-func (s *ttlStore) Scan(ctx context.Context, pattern string, fn func(string) error) error {
+// Scan visits unexpired keys matching pattern in alphabetical order and stops on error.
+func (s *TTLStore) Scan(ctx context.Context, pattern string, fn func(string) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -243,7 +285,8 @@ func (s *ttlStore) Scan(ctx context.Context, pattern string, fn func(string) err
 	return nil
 }
 
-func (s *ttlStore) SetNX(ctx context.Context, key string, value Value) (bool, error) {
+// SetNX writes value only if key does not exist or is expired; the bool reports success.
+func (s *TTLStore) SetNX(ctx context.Context, key string, value Value) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -263,7 +306,8 @@ func (s *ttlStore) SetNX(ctx context.Context, key string, value Value) (bool, er
 	return true, nil
 }
 
-func (s *ttlStore) SetXX(ctx context.Context, key string, value Value) (bool, error) {
+// SetXX writes value only if key exists and is unexpired; the bool reports success.
+func (s *TTLStore) SetXX(ctx context.Context, key string, value Value) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -285,7 +329,7 @@ func (s *ttlStore) SetXX(ctx context.Context, key string, value Value) (bool, er
 	return true, nil
 }
 
-func (s *ttlStore) purgeExpired(now time.Time) {
+func (s *TTLStore) purgeExpired(now time.Time) {
 	for key, entry := range s.data {
 		if now.After(entry.ExpireAt) {
 			delete(s.data, key)
